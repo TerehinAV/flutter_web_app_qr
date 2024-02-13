@@ -52006,7 +52006,8 @@ try{r=J.a9X(a)
 o=r==null?"data is null":r}catch(q){s=A.ak(q)
 o="Error: "+A.h(s)+" {"+A.h(a)+"}"}p=this.a.d
 A.wj(new A.wi(p)).b9(new A.Ww(),t.P)
-Telegram.WebApp.showAlert("QR text copied to clipboard: "+A.h(o))
+Telegram.WebApp.showAlert("QR text copied to clipboard:\n"+A.h(o))
+Telegram.WebApp.closeScanQrPopup()
 Telegram.WebApp.close()},
 $S:329}
 A.Ww.prototype={
@@ -52025,7 +52026,8 @@ if(o==null)o=q
 p=p?r:J.N(a)
 p=o+" of type  "+A.h(p==null?"":p)
 this.a.d=p
-Telegram.WebApp.showAlert("QR text copied to clipboard: "+p)
+Telegram.WebApp.showAlert("QR text copied to clipboard:\n"+p)
+Telegram.WebApp.closeScanQrPopup()
 Telegram.WebApp.close()},
 $S:19}
 A.Wu.prototype={
