@@ -52088,7 +52088,7 @@ if(r==null)r="1"
 s=this.a
 A.o8(new A.o6(r)).b8(new A.WR(s),t.P)
 s.ag(new A.WS())
-Telegram.WebApp.showAlert("QR text copied to clipboard:\n"+r)
+Telegram.WebApp.showAlert("1 QR text copied to clipboard:\n"+r)
 Telegram.WebApp.closeScanQrPopup()
 Telegram.WebApp.close()},
 $S:330}
@@ -52109,7 +52109,7 @@ if(r==null)r="2"
 s=this.a
 A.o8(new A.o6(r)).b8(new A.WO(s),t.P)
 s.ag(new A.WP())
-Telegram.WebApp.showAlert("QR text copied to clipboard:\n"+r)
+Telegram.WebApp.showAlert("2 QR text copied to clipboard:\n"+r)
 Telegram.WebApp.closeScanQrPopup()
 Telegram.WebApp.close()},
 $S:15}
@@ -52129,7 +52129,7 @@ $1(a){var s=J.a_Y(a)
 if(s==null)s="3"
 A.o8(new A.o6(s)).b8(new A.WK(this.b),t.P)
 this.a.ag(new A.WL())
-Telegram.WebApp.showAlert("QR text copied to clipboard:\n"+s)
+Telegram.WebApp.showAlert("3 QR text copied to clipboard:\n"+s)
 Telegram.WebApp.closeScanQrPopup()
 Telegram.WebApp.close()},
 $S:15}
