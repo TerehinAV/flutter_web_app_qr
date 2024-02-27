@@ -50782,10 +50782,12 @@ $1(a){this.a.e.push("2")
 Telegram.WebApp.showScanQrPopup(B.re)},
 $S:2}
 A.VM.prototype={
-$1(a){var s
+$1(a){var s,r,q
 this.a.e.push("1")
-s=J.a8X(a)
-Telegram.WebApp.sendData(s==null?"1":s).b9(new A.VK(),t.P)},
+r=J.a8X(a)
+s=r==null?"1":r
+try{Telegram.WebApp.sendData(s).b9(new A.VK(),t.P)}catch(q){Telegram.WebApp.closeScanQrPopup()
+Telegram.WebApp.close()}},
 $S:326}
 A.VK.prototype={
 $1(a){Telegram.WebApp.closeScanQrPopup()
