@@ -1,60 +1,515 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
-  <base href=".">
-
   <meta charset="UTF-8">
-  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
-
-  <!-- iOS meta tags & icons -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="ra_qr_scanner_web_app">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="QR Scanner">
+  <meta name="description" content="Serverless Telegram Mini App — QR code scanner">
+  <title>QR Code Scanner</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="favicon.png">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
-  <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
-  <title>ra_qr_scanner_web_app</title>
-  <link rel="manifest" href="manifest.json">
+  <style>
+    *,
+    *::before,
+    *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  <script>
-    // The value below is injected by flutter build, do not touch.
-    const serviceWorkerVersion = "1536911206";
-  </script>
-  <!-- This script adds the flutter initialization JS code -->
-  <script src="flutter.js" defer></script>
-  <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
+    :root {
+      --radius-xl: 22px;
+      --radius-lg: 18px;
+      --radius-md: 14px;
+      --radius-sm: 10px;
+      --gap: 12px;
+    }
+
+    html, body {
+      height: 100%;
+      width: 100%;
+      background-color: var(--tg-theme-bg-color, #ffffff);
+      color: var(--tg-theme-text-color, #000000);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      overscroll-behavior: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body { overflow: hidden; }
+
+    #app { position: fixed; inset: 0; display: block; }
+
+    .screen {
+      position: absolute;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding:
+        calc(env(safe-area-inset-top) + 24px)
+        20px
+        calc(env(safe-area-inset-bottom) + 24px);
+    }
+    .screen.is-active { display: flex; }
+
+    /* ---------- Placeholder ---------- */
+    .hero { max-width: 320px; }
+    .hero__icon {
+      width: 124px;
+      height: 124px;
+      margin: 0 auto 28px;
+      border-radius: var(--radius-xl);
+      background-color: var(--tg-theme-secondary-bg-color, #f4f4f5);
+      color: var(--tg-theme-button-color, #3390ec);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background-color .2s ease, color .2s ease;
+    }
+    .hero__icon svg { width: 64px; height: 64px; display: block; }
+    .hero__title {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.2px;
+      margin-bottom: 8px;
+      color: var(--tg-theme-text-color, #000000);
+    }
+    .hero__subtitle {
+      font-size: 15px;
+      line-height: 1.5;
+      color: var(--tg-theme-hint-color, #8e8e93);
+    }
+
+    .fallback-btn { margin-top: 32px; width: 100%; }
+
+    /* ---------- Result / Success ---------- */
+    .result {
+      width: 100%;
+      max-width: 380px;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      text-align: center;
+    }
+    .result__icon {
+      width: 84px;
+      height: 84px;
+      margin: 0 auto 18px;
+      border-radius: 50%;
+      background-color: var(--tg-theme-button-color, #3390ec);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: pop .3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+    }
+    @keyframes pop {
+      0%   { transform: scale(.5); opacity: 0; }
+      100% { transform: scale(1);  opacity: 1; }
+    }
+    .result__icon svg {
+      width: 46px;
+      height: 46px;
+      stroke: var(--tg-theme-button-text-color, #ffffff);
+    }
+    .result__label {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--tg-theme-text-color, #000000);
+      margin-bottom: 16px;
+    }
+    .result__card {
+      background-color: var(--tg-theme-section-bg-color, var(--tg-theme-secondary-bg-color, #f4f4f5));
+      border-radius: var(--radius-md);
+      padding: 16px;
+      max-height: 38vh;
+      overflow: auto;
+      -webkit-overflow-scrolling: touch;
+      text-align: left;
+    }
+    .result__data {
+      font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 15px;
+      line-height: 1.45;
+      word-break: break-all;
+      white-space: pre-wrap;
+      color: var(--tg-theme-text-color, #000000);
+    }
+    .result__actions {
+      margin-top: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: var(--gap);
+    }
+
+    /* ---------- Error ---------- */
+    .error__icon {
+      width: 88px;
+      height: 88px;
+      margin: 0 auto 18px;
+      color: var(--tg-theme-destructive-text-color, #ff3b30);
+    }
+    .error__icon svg { width: 100%; height: 100%; }
+    .error__text {
+      font-size: 16px;
+      font-weight: 500;
+      line-height: 1.5;
+      max-width: 280px;
+      color: var(--tg-theme-text-color, #000000);
+    }
+
+    /* ---------- Buttons ---------- */
+    .btn {
+      height: 50px;
+      border: none;
+      border-radius: var(--radius-md);
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: transform .1s ease, opacity .15s ease;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn svg { width: 20px; height: 20px; }
+    .btn--primary {
+      background-color: var(--tg-theme-button-color, #3390ec);
+      color: var(--tg-theme-button-text-color, #ffffff);
+    }
+    .btn--secondary {
+      background-color: var(--tg-theme-secondary-bg-color, #f4f4f5);
+      color: var(--tg-theme-button-color, #3390ec);
+    }
+
+    /* ---------- Toast ---------- */
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: calc(96px + env(safe-area-inset-bottom));
+      transform: translateX(-50%) translateY(16px);
+      background-color: var(--tg-theme-section-bg-color, var(--tg-theme-secondary-bg-color, #2c2c2e));
+      color: var(--tg-theme-text-color, #ffffff);
+      padding: 12px 20px;
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+      font-weight: 600;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .25s ease, transform .25s ease;
+      z-index: 100;
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
+      max-width: 80vw;
+      text-align: center;
+    }
+    .toast.is-visible {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .result__icon { animation: none; }
+    }
+  </style>
 </head>
 <body>
+  <main id="app">
+    <!-- Placeholder / idle -->
+    <section class="screen screen--placeholder is-active" id="screen-placeholder">
+      <div class="hero">
+        <div class="hero__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="6" height="6" rx="1.4"/>
+            <rect x="15" y="3" width="6" height="6" rx="1.4"/>
+            <rect x="3" y="15" width="6" height="6" rx="1.4"/>
+            <path d="M15 15v.01"/><path d="M18 15v.01"/><path d="M21 15v.01"/>
+            <path d="M15 18h.01"/><path d="M18 18v3"/><path d="M21 18v.01"/>
+            <path d="M15 21h.01"/><path d="M21 21v.01"/>
+            <path d="M11 3v.01"/><path d="M11 7v.01"/><path d="M3 11h.01"/>
+            <path d="M7 11h.01"/><path d="M11 11v.01"/><path d="M11 15v.01"/>
+            <path d="M11 18v.01"/><path d="M11 21h.01"/>
+          </svg>
+        </div>
+        <h1 class="hero__title" data-i18n="title"></h1>
+        <p class="hero__subtitle" data-i18n="placeholder"></p>
+      </div>
+    </section>
+
+    <!-- Success / result -->
+    <section class="screen screen--success" id="screen-success">
+      <div class="result">
+        <div class="result__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 6 9 17l-5-5"/>
+          </svg>
+        </div>
+        <p class="result__label" data-i18n="success"></p>
+        <div class="result__card">
+          <code id="result-data" class="result__data"></code>
+        </div>
+        <div class="result__actions">
+          <button class="btn btn--secondary" id="btn-copy" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="9" y="9" width="11" height="11" rx="2"/>
+              <path d="M5 15V5a2 2 0 0 1 2-2h10"/>
+            </svg>
+            <span data-i18n="copyBtn"></span>
+          </button>
+          <button class="btn btn--primary" id="btn-send" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m22 2-7 20-4-9-9-4Z"/>
+              <path d="M22 2 11 13"/>
+            </svg>
+            <span data-i18n="sendBtn"></span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Error -->
+    <section class="screen screen--error" id="screen-error">
+      <div class="error__icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="m15 9-6 6"/>
+          <path d="m9 9 6 6"/>
+        </svg>
+      </div>
+      <p class="error__text" data-i18n="error"></p>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
   <script>
-    window.addEventListener('load', function(ev) {
-      // Download main.dart.js
-      _flutter.loader.loadEntrypoint({
-        serviceWorker: {
-          serviceWorkerVersion: serviceWorkerVersion,
+    (function () {
+      "use strict";
+
+      var tg = (window.Telegram && window.Telegram.WebApp) || null;
+      var inTelegram = !!(tg && tg.platform && tg.platform !== "unknown");
+      function $(id) { return document.getElementById(id); }
+
+      /* ---------- Localization (URL: ?lng=en|ru) ---------- */
+      var I18N = {
+        en: {
+          title: "QR Code Scanner",
+          placeholder: "Scan any QR code to extract its data",
+          openBtn: "Open QR Scanner",
+          hint: "Point your camera at a QR code",
+          success: "Data extracted successfully!",
+          copyBtn: "Copy to Clipboard",
+          sendBtn: "Send to Chat",
+          copied: "Copied!",
+          sendUnavailable: "Sending is unavailable. Data copied instead.",
+          error: "Failed to read QR code",
+          retryBtn: "Try Again"
         },
-        onEntrypointLoaded: function(engineInitializer) {
-          engineInitializer.initializeEngine().then(function(appRunner) {
-            appRunner.runApp();
-          });
+        ru: {
+          title: "Сканер QR-кода",
+          placeholder: "Отсканируйте любой QR-код, чтобы извлечь данные",
+          openBtn: "Открыть сканер QR",
+          hint: "Наведите камеру на QR-код",
+          success: "Данные успешно получены!",
+          copyBtn: "Скопировать",
+          sendBtn: "Отправить в чат",
+          copied: "Скопировано!",
+          sendUnavailable: "Отправка недоступна. Данные скопированы.",
+          error: "Не удалось распознать QR-код",
+          retryBtn: "Повторить попытку"
         }
-      });
-    });
+      };
+
+      var lng = (function () {
+        var p = new URLSearchParams(window.location.search).get("lng");
+        return (p && I18N[p]) ? p : "en";
+      })();
+      function t(key) { return (I18N[lng][key] || I18N.en[key] || key); }
+
+      function applyI18n() {
+        var nodes = document.querySelectorAll("[data-i18n]");
+        for (var i = 0; i < nodes.length; i++) {
+          nodes[i].textContent = t(nodes[i].getAttribute("data-i18n"));
+        }
+        document.documentElement.lang = lng;
+        document.title = t("title");
+      }
+
+      /* ---------- State machine ---------- */
+      var STATE = { IDLE: "idle", SUCCESS: "success", ERROR: "error" };
+      var state = STATE.IDLE;
+      var lastResult = "";
+
+      function showScreen(name) {
+        var screens = document.querySelectorAll(".screen");
+        for (var i = 0; i < screens.length; i++) screens[i].classList.remove("is-active");
+        var el = $("screen-" + name);
+        if (el) el.classList.add("is-active");
+      }
+
+      /* ---------- Telegram bridge ---------- */
+      function setMainButton(text, visible) {
+        if (!tg || !tg.MainButton) return;
+        if (text != null) tg.MainButton.setText(text);
+        if (visible) { tg.MainButton.enable(); tg.MainButton.show(); }
+        else tg.MainButton.hide();
+      }
+      function setBackButton(visible) {
+        if (!tg || !tg.BackButton) return;
+        if (visible) tg.BackButton.show(); else tg.BackButton.hide();
+      }
+      function haptic(kind) {
+        if (!tg || !tg.HapticFeedback) return;
+        try {
+          if (kind === "success") tg.HapticFeedback.notificationOccurred("success");
+          else if (kind === "error") tg.HapticFeedback.notificationOccurred("error");
+          else tg.HapticFeedback.impactOccurred("light");
+        } catch (e) {}
+      }
+
+      function setState(next) {
+        state = next;
+        switch (next) {
+          case STATE.IDLE:
+            showScreen("placeholder");
+            setMainButton(t("openBtn"), true);
+            setBackButton(false);
+            break;
+          case STATE.SUCCESS:
+            showScreen("success");
+            setMainButton(null, false);
+            setBackButton(true);
+            haptic("success");
+            break;
+          case STATE.ERROR:
+            showScreen("error");
+            setMainButton(t("retryBtn"), true);
+            setBackButton(true);
+            haptic("error");
+            break;
+        }
+      }
+
+      /* ---------- Native QR scanner ---------- */
+      // Telegram Bot API 6.4+ exposes showScanQrPopup, which opens the native
+      // camera scanner as an overlay. The callback fires per recognized QR;
+      // returning true dismisses the scanner.
+      function openScanner() {
+        haptic("impact");
+        if (!tg || typeof tg.showScanQrPopup !== "function") {
+          setState(STATE.ERROR);
+          return;
+        }
+        try {
+          tg.showScanQrPopup({ text: t("hint") }, function (data) {
+            if (data) {
+              lastResult = data;
+              $("result-data").textContent = lastResult;
+              setState(STATE.SUCCESS);
+              return true;
+            }
+            return false;
+          });
+        } catch (e) {
+          // Bot API < 6.4 (WebAppMethodUnsupported) or popup already open.
+          setState(STATE.ERROR);
+        }
+      }
+
+      function onMainButton() { openScanner(); }
+      function onBackButton() {
+        haptic("impact");
+        setState(STATE.IDLE);
+      }
+
+      /* ---------- Result actions ---------- */
+      var toastTimer = null;
+      function showToast(msg) {
+        var el = $("toast");
+        el.textContent = msg;
+        el.classList.add("is-visible");
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () { el.classList.remove("is-visible"); }, 1800);
+      }
+
+      function copyResult() {
+        haptic("impact");
+        var done = function () { showToast(t("copied")); };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(lastResult).then(done, fallbackCopy);
+        } else {
+          fallbackCopy();
+        }
+        function fallbackCopy() {
+          try {
+            var ta = document.createElement("textarea");
+            ta.value = lastResult;
+            ta.setAttribute("readonly", "");
+            ta.style.position = "fixed";
+            ta.style.top = "-9999px";
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand("copy");
+            document.body.removeChild(ta);
+            done();
+          } catch (e) {}
+        }
+      }
+
+      // sendData works only for keyboard-button Mini Apps and closes the app.
+      // Guard the 4096-byte limit; fall back to clipboard otherwise.
+      function sendResult() {
+        haptic("impact");
+        if (tg && typeof tg.sendData === "function" && lastResult.length <= 4096) {
+          try { tg.sendData(lastResult); return; } catch (e) {}
+        }
+        copyResult();
+        if (tg && typeof tg.showAlert === "function") tg.showAlert(t("sendUnavailable"));
+      }
+
+      /* ---------- Init ---------- */
+      function addFallbackButton() {
+        // Outside Telegram there is no native MainButton; add an in-app trigger.
+        var hero = $("screen-placeholder").querySelector(".hero");
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn btn--primary fallback-btn";
+        btn.textContent = t("openBtn");
+        btn.addEventListener("click", openScanner);
+        hero.appendChild(btn);
+      }
+
+      function init() {
+        applyI18n();
+
+        if (tg) {
+          tg.ready();
+          try { tg.expand(); } catch (e) {}
+          if (tg.MainButton) tg.MainButton.onClick(onMainButton);
+          if (tg.BackButton) tg.BackButton.onClick(onBackButton);
+        }
+
+        $("btn-copy").addEventListener("click", copyResult);
+        $("btn-send").addEventListener("click", sendResult);
+
+        setState(STATE.IDLE);
+
+        if (!inTelegram) addFallbackButton();
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init);
+      } else {
+        init();
+      }
+    })();
   </script>
 </body>
 </html>

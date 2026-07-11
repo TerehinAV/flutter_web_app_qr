@@ -1,11 +1,11 @@
 {
-    "name": "ra_qr_scanner_web_app",
-    "short_name": "ra_qr_scanner_web_app",
+    "name": "QR Code Scanner",
+    "short_name": "QR Scanner",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#ffffff",
+    "theme_color": "#3390ec",
+    "description": "Serverless Telegram Mini App — QR code scanner",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
