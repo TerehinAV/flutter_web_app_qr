@@ -21,7 +21,15 @@ HTML/CSS/JS — no framework, no build step. Hosted on GitHub Pages.
 
 ## Localization
 
-Append `?lng=ru` or `?lng=en` to the Web App URL. Defaults to `en`.
+Resolution order:
+1. Explicit `?lng=en|ru` URL parameter (override).
+2. Telegram client language — `tg.initDataUnsafe.user.language_code`
+   (so the Mini App matches the native scanner overlay and the rest of
+   the user's Telegram interface).
+3. `en` fallback.
+
+The native `showScanQrPopup` overlay title always follows the Telegram
+client language and cannot be overridden from the Mini App.
 
 ## Local testing
 
