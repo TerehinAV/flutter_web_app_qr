@@ -86,7 +86,13 @@
       line-height: 1.5;
       color: var(--tg-theme-hint-color, #8e8e93);
     }
-    .fallback-btn { margin-top: 32px; width: 100%; }
+    .hero__actions {
+      margin-top: 32px;
+      display: flex;
+      flex-direction: column;
+      gap: var(--gap);
+      width: 100%;
+    }
 
     /* ---------- Scanner (camera fallback) ---------- */
     .screen--scanner {
@@ -365,6 +371,7 @@
           title: "QR Code Scanner",
           placeholder: "Scan any QR code to extract its data",
           openBtn: "Open QR Scanner",
+          cameraBtn: "Use device camera",
           hint: "Point your camera at a QR code",
           success: "Data extracted successfully!",
           copyBtn: "Copy to Clipboard",
@@ -382,6 +389,7 @@
           title: "Сканер QR-кода",
           placeholder: "Отсканируйте любой QR-код, чтобы извлечь данные",
           openBtn: "Открыть сканер QR",
+          cameraBtn: "Использовать камеру устройства",
           hint: "Наведите камеру на QR-код",
           success: "Данные успешно получены!",
           copyBtn: "Скопировать",
@@ -541,10 +549,12 @@
         navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false })
           .then(function (s) {
             stream = s;
+            video.onloadedmetadata = function () {
+              video.play().then(loop, function (err) {
+                fail("camera_error", "play rejected: " + String(err && err.name));
+              });
+            };
             video.srcObject = s;
-            var p = video.play ? video.play() : null;
-            if (p && p.then) p.then(loop, function () { fail("camera_error", "play rejected"); });
-            else loop();
           })
           .catch(function (err) { fail("camera_denied", String(err && (err.name || err.message || err))); });
       }
@@ -693,15 +703,20 @@
       }
 
       /* ---------- Init ---------- */
-      function addFallbackButton() {
-        // No native MainButton outside Telegram — show an in-app trigger.
+      function addActionButton(label, handler, variant) {
         var hero = $("screen-placeholder").querySelector(".hero");
+        var actions = hero.querySelector(".hero__actions");
+        if (!actions) {
+          actions = document.createElement("div");
+          actions.className = "hero__actions";
+          hero.appendChild(actions);
+        }
         var btn = document.createElement("button");
         btn.type = "button";
-        btn.className = "btn btn--primary fallback-btn";
-        btn.textContent = t("openBtn");
-        btn.addEventListener("click", openScanner);
-        hero.appendChild(btn);
+        btn.className = "btn " + (variant || "btn--primary");
+        btn.textContent = label;
+        btn.addEventListener("click", handler);
+        actions.appendChild(btn);
       }
 
       function init() {
@@ -721,7 +736,9 @@
 
         setState(STATE.IDLE);
 
-        if (!inTelegram || !tg || !tg.MainButton) addFallbackButton();
+        var nativeAvailable = !!(inTelegram && tg && typeof tg.showScanQrPopup === "function");
+        if (!tg || !tg.MainButton) addActionButton(t("openBtn"), openScanner, "btn--primary");
+        if (nativeAvailable) addActionButton(t("cameraBtn"), openCamera, "btn--secondary");
       }
 
       if (document.readyState === "loading") {
