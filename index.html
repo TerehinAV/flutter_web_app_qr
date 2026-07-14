@@ -13,6 +13,7 @@
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 
   <style>
     *,
@@ -85,8 +86,43 @@
       line-height: 1.5;
       color: var(--tg-theme-hint-color, #8e8e93);
     }
-
     .fallback-btn { margin-top: 32px; width: 100%; }
+
+    /* ---------- Scanner (camera fallback) ---------- */
+    .screen--scanner {
+      padding: 0;
+      background-color: #000000;
+      align-items: stretch;
+      justify-content: stretch;
+    }
+    .scanner__video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .scanner__overlay { position: absolute; inset: 0; pointer-events: none; }
+    .scanner__frame {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: min(72vw, 290px);
+      aspect-ratio: 1 / 1;
+      transform: translate(-50%, -50%);
+      border-radius: var(--radius-lg);
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
+    }
+    .corner {
+      position: absolute;
+      width: 30px;
+      height: 30px;
+      border: 4px solid var(--tg-theme-button-color, #ffffff);
+    }
+    .corner--tl { top: -3px; left: -3px; border-right: 0; border-bottom: 0; border-top-left-radius: 10px; }
+    .corner--tr { top: -3px; right: -3px; border-left: 0; border-bottom: 0; border-top-right-radius: 10px; }
+    .corner--bl { bottom: -3px; left: -3px; border-right: 0; border-top: 0; border-bottom-left-radius: 10px; }
+    .corner--br { bottom: -3px; right: -3px; border-left: 0; border-top: 0; border-bottom-right-radius: 10px; }
 
     /* ---------- Result / Success ---------- */
     .result {
@@ -225,7 +261,7 @@
     <!-- Placeholder / idle -->
     <section class="screen screen--placeholder is-active" id="screen-placeholder">
       <div class="hero">
-        <div class="hero__icon" aria-hidden="true">
+        <div class="hero__icon" id="placeholder-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="3" width="6" height="6" rx="1.4"/>
             <rect x="15" y="3" width="6" height="6" rx="1.4"/>
@@ -240,6 +276,19 @@
         </div>
         <h1 class="hero__title" data-i18n="title"></h1>
         <p class="hero__subtitle" data-i18n="placeholder"></p>
+      </div>
+    </section>
+
+    <!-- Camera scanner -->
+    <section class="screen screen--scanner" id="screen-scanner">
+      <video id="video" class="scanner__video" playsinline muted autoplay></video>
+      <div class="scanner__overlay">
+        <div class="scanner__frame">
+          <span class="corner corner--tl"></span>
+          <span class="corner corner--tr"></span>
+          <span class="corner corner--bl"></span>
+          <span class="corner corner--br"></span>
+        </div>
       </div>
     </section>
 
@@ -297,6 +346,19 @@
       var inTelegram = !!(tg && tg.platform && tg.platform !== "unknown");
       function $(id) { return document.getElementById(id); }
 
+      function readTgParam(name) {
+        var src = (location.hash || "") + "&" + (location.search || "");
+        var m = src.match(new RegExp(name + "=([^&#]*)"));
+        return m ? decodeURIComponent(m[1]) : null;
+      }
+      var tgPlatformFromUrl = readTgParam("tgWebAppPlatform");
+      var tgVersionFromUrl = readTgParam("tgWebAppVersion");
+      // If Telegram injected launch params but the SDK didn't parse them, we
+      // are still effectively in Telegram — trust the URL over the SDK.
+      if (!inTelegram && tgPlatformFromUrl && tgPlatformFromUrl !== "unknown") {
+        inTelegram = true;
+      }
+
       /* ---------- Localization (URL: ?lng=en|ru) ---------- */
       var I18N = {
         en: {
@@ -312,6 +374,7 @@
           error: "Failed to open the QR scanner.",
           errSdk: "Couldn't connect to Telegram. Check your connection and try again.",
           errOutdated: "Please update Telegram to the latest version to scan QR codes.",
+          errCamera: "Couldn't access the camera. Check permissions and try again.",
           diagCopied: "Diagnostic data copied!",
           retryBtn: "Try Again"
         },
@@ -328,6 +391,7 @@
           error: "Не удалось открыть сканер QR.",
           errSdk: "Не удалось подключиться к Telegram. Проверьте подключение и повторите.",
           errOutdated: "Обновите Telegram до последней версии, чтобы сканировать QR-коды.",
+          errCamera: "Не удалось получить доступ к камере. Проверьте разрешения и повторите.",
           diagCopied: "Диагностические данные скопированы!",
           retryBtn: "Повторить попытку"
         }
@@ -353,12 +417,14 @@
       }
 
       /* ---------- State machine ---------- */
-      var STATE = { IDLE: "idle", SUCCESS: "success", ERROR: "error" };
+      var STATE = { IDLE: "idle", SCANNING: "scanning", SUCCESS: "success", ERROR: "error" };
       var state = STATE.IDLE;
       var lastResult = "";
       var errorInfo = null;
+      var scanMethod = null;
 
       function errorTextKey(type) {
+        if (type === "camera_error" || type === "camera_denied" || type === "camera_unsupported") return "errCamera";
         if (type === "sdk_unavailable") return "errSdk";
         if (type === "client_outdated" || type === "scanner_unsupported") return "errOutdated";
         return "error";
@@ -403,6 +469,11 @@
             setMainButton(t("openBtn"), true);
             setBackButton(false);
             break;
+          case STATE.SCANNING:
+            showScreen("scanner");
+            setMainButton(null, false);
+            setBackButton(true);
+            break;
           case STATE.SUCCESS:
             showScreen("success");
             setMainButton(null, false);
@@ -419,35 +490,99 @@
         }
       }
 
-      /* ---------- Native QR scanner ---------- */
-      // Telegram Bot API 6.4+ exposes showScanQrPopup, which opens the native
-      // camera scanner as an overlay. The callback fires per recognized QR;
-      // returning true dismisses the scanner.
+      function setSuccess(data) {
+        lastResult = data;
+        $("result-data").textContent = lastResult;
+        setState(STATE.SUCCESS);
+      }
+
+      /* ---------- Scanner: native first, camera fallback ---------- */
       function openScanner() {
         haptic("impact");
-        if (!tg) { fail("sdk_unavailable"); return; }
-        if (typeof tg.showScanQrPopup !== "function") { fail("scanner_unsupported"); return; }
+        if (inTelegram && tg && typeof tg.showScanQrPopup === "function") {
+          openNative();
+        } else {
+          openCamera();
+        }
+      }
+
+      // Native showScanQrPopup (Bot API 6.4+). On any failure, fall back to camera.
+      function openNative() {
+        scanMethod = "native";
         try {
           tg.showScanQrPopup({ text: t("hint") }, function (data) {
-            if (data) {
-              lastResult = data;
-              $("result-data").textContent = lastResult;
-              setState(STATE.SUCCESS);
-              return true;
-            }
+            if (data) { setSuccess(data); return true; }
             return false;
           });
         } catch (e) {
-          var msg = (e && e.message) ? e.message : String(e);
-          if (/Unsupported/i.test(msg)) fail("client_outdated", msg);
-          else if (/Opened/i.test(msg)) fail("scanner_open", msg);
-          else fail("scanner_error", msg);
+          openCamera();
         }
+      }
+
+      // Camera scanner via getUserMedia + jsQR. Independent of the Telegram SDK,
+      // works even when the SDK script fails to load or the native popup is broken.
+      var video = null;
+      var canvas = document.createElement("canvas");
+      var ctx = canvas.getContext("2d", { willReadFrequently: true });
+      var stream = null;
+      var rafId = null;
+      var lastDecode = 0;
+
+      function openCamera() {
+        scanMethod = "camera";
+        stopCamera();
+        video = $("video");
+        if (typeof window.jsQR !== "function") { fail("scanner_unsupported", "jsQR not loaded"); return; }
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          fail("camera_unsupported", "getUserMedia missing");
+          return;
+        }
+        setState(STATE.SCANNING);
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false })
+          .then(function (s) {
+            stream = s;
+            video.srcObject = s;
+            var p = video.play ? video.play() : null;
+            if (p && p.then) p.then(loop, function () { fail("camera_error", "play rejected"); });
+            else loop();
+          })
+          .catch(function (err) { fail("camera_denied", String(err && (err.name || err.message || err))); });
+      }
+
+      function loop(now) {
+        rafId = requestAnimationFrame(loop);
+        now = now || 0;
+        if (!video || video.readyState < 2) return;
+        if (now - lastDecode < 90) return;
+        lastDecode = now;
+        var vw = video.videoWidth, vh = video.videoHeight;
+        if (!vw || !vh) return;
+        var cap = 540;
+        var scale = Math.min(1, cap / Math.max(vw, vh));
+        canvas.width = Math.max(1, Math.round(vw * scale));
+        canvas.height = Math.max(1, Math.round(vh * scale));
+        try {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          var img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          var code = window.jsQR(img.data, img.width, img.height, { inversionAttempts: "attemptBoth" });
+          if (code && code.data) { stopCamera(); setSuccess(code.data); }
+        } catch (e) {}
+      }
+
+      function stopCamera() {
+        if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+        if (stream) {
+          stream.getTracks().forEach(function (tr) { try { tr.stop(); } catch (e) {} });
+          stream = null;
+        }
+        if (video) { try { video.pause(); } catch (e) {} video.srcObject = null; }
+        lastDecode = 0;
       }
 
       function onMainButton() { openScanner(); }
       function onBackButton() {
         haptic("impact");
+        stopCamera();
         setState(STATE.IDLE);
       }
 
@@ -489,22 +624,36 @@
         copyText(lastResult, t("copied"));
       }
 
+      // Diagnostic payload distinguishes: SDK didn't load vs. not launched from
+      // Telegram vs. native popup failed — by comparing URL launch params to the
+      // parsed SDK state.
       function buildDiagnostic() {
+        var hasTelegram = typeof window.Telegram !== "undefined";
+        var hasWebApp = !!(window.Telegram && window.Telegram.WebApp);
         var payload = {
           app: "tg-qr-scanner",
           time: (errorInfo && errorInfo.time) || new Date().toISOString(),
+          state: state,
+          scanMethod: scanMethod,
           error: errorInfo ? errorInfo.type : null,
           detail: errorInfo ? errorInfo.raw : null,
           locale: lng,
+          inTelegram: inTelegram,
+          sdk: {
+            hasTelegram: hasTelegram,
+            hasWebApp: hasWebApp,
+            platform: tg ? tg.platform : null,
+            version: tg ? tg.version : null
+          },
+          launch: {
+            hashHasTg: (location.hash || "").indexOf("tgWebApp") >= 0,
+            searchHasTg: (location.search || "").indexOf("tgWebApp") >= 0,
+            platformFromUrl: tgPlatformFromUrl,
+            versionFromUrl: tgVersionFromUrl
+          },
           online: navigator.onLine,
           ua: navigator.userAgent,
-          url: location.href,
-          tg: tg ? {
-            version: tg.version,
-            platform: tg.platform,
-            colorScheme: tg.colorScheme,
-            lang: (tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.language_code) || null
-          } : null
+          url: location.href
         };
         try {
           return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
@@ -518,11 +667,11 @@
         copyText(buildDiagnostic(), t("diagCopied"));
       }
 
-      // Hidden diagnostic trigger: tap the error icon several times in a row.
+      // Hidden diagnostic trigger: tap the icon several times in a row.
       var DIAG_THRESHOLD = 5;
       var diagTaps = 0;
       var diagTimer = null;
-      function onErrorIconTap() {
+      function onDiagIconTap() {
         diagTaps++;
         if (diagTimer) clearTimeout(diagTimer);
         diagTimer = setTimeout(function () { diagTaps = 0; }, 1500);
@@ -545,7 +694,7 @@
 
       /* ---------- Init ---------- */
       function addFallbackButton() {
-        // Outside Telegram there is no native MainButton; add an in-app trigger.
+        // No native MainButton outside Telegram — show an in-app trigger.
         var hero = $("screen-placeholder").querySelector(".hero");
         var btn = document.createElement("button");
         btn.type = "button";
@@ -567,11 +716,12 @@
 
         $("btn-copy").addEventListener("click", copyResult);
         $("btn-send").addEventListener("click", sendResult);
-        $("error-icon").addEventListener("click", onErrorIconTap);
+        $("error-icon").addEventListener("click", onDiagIconTap);
+        $("placeholder-icon").addEventListener("click", onDiagIconTap);
 
         setState(STATE.IDLE);
 
-        if (!inTelegram) addFallbackButton();
+        if (!inTelegram || !tg || !tg.MainButton) addFallbackButton();
       }
 
       if (document.readyState === "loading") {
