@@ -45,3 +45,8 @@ pressing it routes to the error state (native scanning is unavailable).
 - `tg.sendData` only works for Mini Apps launched from a keyboard button and
   is limited to 4096 bytes. Otherwise the app falls back to copying the data
   and showing an alert.
+- Error messages are differentiated by cause (connection, outdated client,
+  generic). Tapping the error icon **5 times** within 1.5 s copies a base64
+  diagnostic payload (WebApp version, platform, user agent, error type, raw
+  detail) to the clipboard for support. Decode with:
+  `echo <base64> | base64 -d | jq`.

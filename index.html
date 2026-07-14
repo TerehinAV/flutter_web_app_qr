@@ -276,14 +276,14 @@
 
     <!-- Error -->
     <section class="screen screen--error" id="screen-error">
-      <div class="error__icon" aria-hidden="true">
+      <div class="error__icon" id="error-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="10"/>
           <path d="m15 9-6 6"/>
           <path d="m9 9 6 6"/>
         </svg>
       </div>
-      <p class="error__text" data-i18n="error"></p>
+      <p class="error__text" id="error-text"></p>
     </section>
   </main>
 
@@ -309,7 +309,10 @@
           sendBtn: "Send to Chat",
           copied: "Copied!",
           sendUnavailable: "Sending is unavailable. Data copied instead.",
-          error: "Failed to read QR code",
+          error: "Failed to open the QR scanner.",
+          errSdk: "Couldn't connect to Telegram. Check your connection and try again.",
+          errOutdated: "Please update Telegram to the latest version to scan QR codes.",
+          diagCopied: "Diagnostic data copied!",
           retryBtn: "Try Again"
         },
         ru: {
@@ -322,7 +325,10 @@
           sendBtn: "Отправить в чат",
           copied: "Скопировано!",
           sendUnavailable: "Отправка недоступна. Данные скопированы.",
-          error: "Не удалось распознать QR-код",
+          error: "Не удалось открыть сканер QR.",
+          errSdk: "Не удалось подключиться к Telegram. Проверьте подключение и повторите.",
+          errOutdated: "Обновите Telegram до последней версии, чтобы сканировать QR-коды.",
+          diagCopied: "Диагностические данные скопированы!",
           retryBtn: "Повторить попытку"
         }
       };
@@ -350,6 +356,17 @@
       var STATE = { IDLE: "idle", SUCCESS: "success", ERROR: "error" };
       var state = STATE.IDLE;
       var lastResult = "";
+      var errorInfo = null;
+
+      function errorTextKey(type) {
+        if (type === "sdk_unavailable") return "errSdk";
+        if (type === "client_outdated" || type === "scanner_unsupported") return "errOutdated";
+        return "error";
+      }
+      function fail(type, raw) {
+        errorInfo = { type: type, raw: raw ? String(raw) : null, time: new Date().toISOString() };
+        setState(STATE.ERROR);
+      }
 
       function showScreen(name) {
         var screens = document.querySelectorAll(".screen");
@@ -394,6 +411,7 @@
             break;
           case STATE.ERROR:
             showScreen("error");
+            $("error-text").textContent = t(errorTextKey(errorInfo && errorInfo.type));
             setMainButton(t("retryBtn"), true);
             setBackButton(true);
             haptic("error");
@@ -407,10 +425,8 @@
       // returning true dismisses the scanner.
       function openScanner() {
         haptic("impact");
-        if (!tg || typeof tg.showScanQrPopup !== "function") {
-          setState(STATE.ERROR);
-          return;
-        }
+        if (!tg) { fail("sdk_unavailable"); return; }
+        if (typeof tg.showScanQrPopup !== "function") { fail("scanner_unsupported"); return; }
         try {
           tg.showScanQrPopup({ text: t("hint") }, function (data) {
             if (data) {
@@ -422,8 +438,10 @@
             return false;
           });
         } catch (e) {
-          // Bot API < 6.4 (WebAppMethodUnsupported) or popup already open.
-          setState(STATE.ERROR);
+          var msg = (e && e.message) ? e.message : String(e);
+          if (/Unsupported/i.test(msg)) fail("client_outdated", msg);
+          else if (/Opened/i.test(msg)) fail("scanner_open", msg);
+          else fail("scanner_error", msg);
         }
       }
 
@@ -443,18 +461,17 @@
         toastTimer = setTimeout(function () { el.classList.remove("is-visible"); }, 1800);
       }
 
-      function copyResult() {
-        haptic("impact");
-        var done = function () { showToast(t("copied")); };
+      function copyText(text, msg) {
+        var done = function () { showToast(msg); };
         if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(lastResult).then(done, fallbackCopy);
+          navigator.clipboard.writeText(text).then(done, function () { fallback(text); });
         } else {
-          fallbackCopy();
+          fallback(text);
         }
-        function fallbackCopy() {
+        function fallback(s) {
           try {
             var ta = document.createElement("textarea");
-            ta.value = lastResult;
+            ta.value = s;
             ta.setAttribute("readonly", "");
             ta.style.position = "fixed";
             ta.style.top = "-9999px";
@@ -464,6 +481,54 @@
             document.body.removeChild(ta);
             done();
           } catch (e) {}
+        }
+      }
+
+      function copyResult() {
+        haptic("impact");
+        copyText(lastResult, t("copied"));
+      }
+
+      function buildDiagnostic() {
+        var payload = {
+          app: "tg-qr-scanner",
+          time: (errorInfo && errorInfo.time) || new Date().toISOString(),
+          error: errorInfo ? errorInfo.type : null,
+          detail: errorInfo ? errorInfo.raw : null,
+          locale: lng,
+          online: navigator.onLine,
+          ua: navigator.userAgent,
+          url: location.href,
+          tg: tg ? {
+            version: tg.version,
+            platform: tg.platform,
+            colorScheme: tg.colorScheme,
+            lang: (tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.language_code) || null
+          } : null
+        };
+        try {
+          return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+        } catch (e) {
+          return JSON.stringify(payload);
+        }
+      }
+
+      function copyDiagnostic() {
+        haptic("impact");
+        copyText(buildDiagnostic(), t("diagCopied"));
+      }
+
+      // Hidden diagnostic trigger: tap the error icon several times in a row.
+      var DIAG_THRESHOLD = 5;
+      var diagTaps = 0;
+      var diagTimer = null;
+      function onErrorIconTap() {
+        diagTaps++;
+        if (diagTimer) clearTimeout(diagTimer);
+        diagTimer = setTimeout(function () { diagTaps = 0; }, 1500);
+        if (diagTaps >= DIAG_THRESHOLD) {
+          diagTaps = 0;
+          copyDiagnostic();
         }
       }
 
@@ -502,6 +567,7 @@
 
         $("btn-copy").addEventListener("click", copyResult);
         $("btn-send").addEventListener("click", sendResult);
+        $("error-icon").addEventListener("click", onErrorIconTap);
 
         setState(STATE.IDLE);
 
