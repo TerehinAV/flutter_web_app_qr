@@ -204,6 +204,13 @@
       max-width: 280px;
       color: var(--tg-theme-text-color, #000000);
     }
+    .error__hint {
+      font-size: 13.5px;
+      line-height: 1.5;
+      max-width: 300px;
+      margin-top: 14px;
+      color: var(--tg-theme-hint-color, #8e8e93);
+    }
 
     /* ---------- Buttons ---------- */
     .btn {
@@ -339,6 +346,7 @@
         </svg>
       </div>
       <p class="error__text" id="error-text"></p>
+      <p class="error__hint" id="error-hint"></p>
     </section>
   </main>
 
@@ -371,7 +379,6 @@
           title: "QR Code Scanner",
           placeholder: "Scan any QR code to extract its data",
           openBtn: "Open QR Scanner",
-          cameraBtn: "Use device camera",
           hint: "Point your camera at a QR code",
           success: "Data extracted successfully!",
           copyBtn: "Copy to Clipboard",
@@ -379,17 +386,20 @@
           copied: "Copied!",
           sendUnavailable: "Sending is unavailable. Data copied instead.",
           error: "Failed to open the QR scanner.",
+          errGenericHint: "If the problem persists, please contact support.",
           errSdk: "Couldn't connect to Telegram. Check your connection and try again.",
+          errSdkHint: "Check your internet connection — the app couldn't load Telegram components.",
           errOutdated: "Please update Telegram to the latest version to scan QR codes.",
+          errOutdatedHint: "Update Telegram to the latest version from your app store.",
           errCamera: "Couldn't access the camera. Check permissions and try again.",
-          diagCopied: "Diagnostic data copied!",
-          retryBtn: "Try Again"
+          errCameraHint: "Allow camera access for your browser in the device settings, or make sure Telegram is set to use its in-app browser. If it still doesn't work, contact support.",
+          closeBtn: "Close",
+          diagCopied: "Diagnostic data copied!"
         },
         ru: {
           title: "Сканер QR-кода",
           placeholder: "Отсканируйте любой QR-код, чтобы извлечь данные",
           openBtn: "Открыть сканер QR",
-          cameraBtn: "Использовать камеру устройства",
           hint: "Наведите камеру на QR-код",
           success: "Данные успешно получены!",
           copyBtn: "Скопировать",
@@ -397,11 +407,15 @@
           copied: "Скопировано!",
           sendUnavailable: "Отправка недоступна. Данные скопированы.",
           error: "Не удалось открыть сканер QR.",
+          errGenericHint: "Если проблема сохраняется, напишите в поддержку.",
           errSdk: "Не удалось подключиться к Telegram. Проверьте подключение и повторите.",
+          errSdkHint: "Проверьте подключение к интернету — приложению не удалось загрузить компоненты Telegram.",
           errOutdated: "Обновите Telegram до последней версии, чтобы сканировать QR-коды.",
+          errOutdatedHint: "Обновите Telegram до последней версии в магазине приложений.",
           errCamera: "Не удалось получить доступ к камере. Проверьте разрешения и повторите.",
-          diagCopied: "Диагностические данные скопированы!",
-          retryBtn: "Повторить попытку"
+          errCameraHint: "Разрешите браузеру доступ к камере в настройках устройства или убедитесь, что в Telegram выбран встроенный браузер. Если не помогло — напишите в поддержку.",
+          closeBtn: "Закрыть",
+          diagCopied: "Диагностические данные скопированы!"
         }
       };
 
@@ -430,12 +444,19 @@
       var lastResult = "";
       var errorInfo = null;
       var scanMethod = null;
+      var nativeFailed = false;
 
       function errorTextKey(type) {
         if (type === "camera_error" || type === "camera_denied" || type === "camera_unsupported") return "errCamera";
         if (type === "sdk_unavailable") return "errSdk";
         if (type === "client_outdated" || type === "scanner_unsupported") return "errOutdated";
         return "error";
+      }
+      function errorHintKey(type) {
+        if (type === "camera_error" || type === "camera_denied" || type === "camera_unsupported") return "errCameraHint";
+        if (type === "sdk_unavailable") return "errSdkHint";
+        if (type === "client_outdated" || type === "scanner_unsupported") return "errOutdatedHint";
+        return "errGenericHint";
       }
       function fail(type, raw) {
         errorInfo = { type: type, raw: raw ? String(raw) : null, time: new Date().toISOString() };
@@ -491,7 +512,8 @@
           case STATE.ERROR:
             showScreen("error");
             $("error-text").textContent = t(errorTextKey(errorInfo && errorInfo.type));
-            setMainButton(t("retryBtn"), true);
+            $("error-hint").textContent = t(errorHintKey(errorInfo && errorInfo.type));
+            setMainButton(t("closeBtn"), true);
             setBackButton(true);
             haptic("error");
             break;
@@ -507,14 +529,15 @@
       /* ---------- Scanner: native first, camera fallback ---------- */
       function openScanner() {
         haptic("impact");
-        if (inTelegram && tg && typeof tg.showScanQrPopup === "function") {
+        if (!nativeFailed && inTelegram && tg && typeof tg.showScanQrPopup === "function") {
           openNative();
         } else {
           openCamera();
         }
       }
 
-      // Native showScanQrPopup (Bot API 6.4+). On any failure, fall back to camera.
+      // Native showScanQrPopup (Bot API 6.4+). On failure, mark native unusable
+      // and escalate to the device camera so the next attempt uses it.
       function openNative() {
         scanMethod = "native";
         try {
@@ -523,6 +546,7 @@
             return false;
           });
         } catch (e) {
+          nativeFailed = true;
           openCamera();
         }
       }
@@ -589,7 +613,19 @@
         lastDecode = 0;
       }
 
-      function onMainButton() { openScanner(); }
+      // Terminal "nothing works" action — close the Mini App. The user either
+      // grants permissions and reopens, or contacts support (5-tap diagnostic
+      // available on the icon to attach to the support request).
+      function closeApp() {
+        haptic("impact");
+        if (tg && typeof tg.close === "function") { try { tg.close(); return; } catch (e) {} }
+        try { window.close(); } catch (e) {}
+      }
+
+      function onMainButton() {
+        if (state === STATE.ERROR) closeApp();
+        else openScanner();
+      }
       function onBackButton() {
         haptic("impact");
         stopCamera();
@@ -736,9 +772,7 @@
 
         setState(STATE.IDLE);
 
-        var nativeAvailable = !!(inTelegram && tg && typeof tg.showScanQrPopup === "function");
         if (!tg || !tg.MainButton) addActionButton(t("openBtn"), openScanner, "btn--primary");
-        if (nativeAvailable) addActionButton(t("cameraBtn"), openCamera, "btn--secondary");
       }
 
       if (document.readyState === "loading") {
